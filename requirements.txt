@@ -10,3 +10,4 @@ pillow
 yt_dlp
 youtube-transcript-api
 pytube
+pandas==2.1.4
