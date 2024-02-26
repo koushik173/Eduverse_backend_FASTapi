@@ -102,8 +102,7 @@ def get_text_chunks(text):
 def get_conversational_chain():
 
     prompt_template = """
-    Answer the question as detailed as possible from the provided context, make sure to provide all the details, if the answer is not in
-    provided context just say, "answer is not available in the context", don't provide the wrong answer\n\n
+    Answer the question as detailed as possible from the provided context, make sure to provide all the details\n\n
     Context:\n {context}?\n
     Question: \n{question}\n
 
@@ -252,10 +251,10 @@ async def load_youtube_text(link: dict):
     )
     text = loader.load()
     page_content = text[0].page_content
+    get_text_chunks(page_content)
     # text_chunks = get_text_chunks(text)
     # get_vector_store(text_chunks)
-
-    return {"page_content":page_content}
+    return {"success": True}
 
 
 @app.post("/mcq_Gendoc")
@@ -267,11 +266,6 @@ async def mcq_genDoc(doc: dict):
     mcq = genMCQ(text,number,subject,tone)
 
     return mcq
-
-
-
-
-
 
 
 if __name__ == "__main__":
