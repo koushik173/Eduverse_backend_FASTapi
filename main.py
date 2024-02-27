@@ -35,7 +35,9 @@ llm=ChatOpenAI(model_name="gpt-3.5-turbo",temperature=0.7)
 
 
 
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+load_dotenv()
+os.getenv("GOOGLE_API_KEY")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 app = FastAPI()
 app.add_middleware(
@@ -92,7 +94,14 @@ def get_text_chunks(text):
     chunks = text_splitter.split_text(text)
     embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
     vector_store = FAISS.from_texts(chunks, embedding=embeddings)
-    vector_store.save_local("faiss_index")
+    vector_store.save_local("faiss_indexs")
+    return {"done": "ok"}
+
+
+async def chatt(texttt):
+    response = chatchain(texttt)
+    return response['response']
+
 
 # def get_vector_store(text_chunks):
 #     embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
@@ -122,7 +131,7 @@ def get_conversational_chain():
 def user_input(user_question):
     embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
     
-    new_db = FAISS.load_local("faiss_index", embeddings)
+    new_db = FAISS.load_local("faiss_indexs", embeddings)
     docs = new_db.similarity_search(user_question)
     
 
@@ -218,22 +227,26 @@ def genMCQ(text, number, subject, tone):
 @app.get("/")
 def read_root():
     return {"Hello": "Gemini"}
-
+ 
+ 
 @app.post("/chatGemini")
 async def chat_gemini(qurry: dict):
-    response = chatchain(qurry["user"])
-    return response
+
+    res = await chatt(qurry["user"])
+    print(res)
+    return res
+
 
 @app.post("/chatPDFgemini")
 async def chat_pdf_gemini(qurry: dict):
     # text_chunks = get_text_chunks(text)
-    # get_vector_store(text_chunks)
+    # get_vector_store(text_chunks) 
     response = user_input(qurry["user"])
     return response
 
 @app.post("/pdfTextLoaded")
 async def pdf_text_loaded(qurry: dict):
-    get_text_chunks(qurry["usertext"])
+    res = get_text_chunks(qurry["usertext"])
     return {"success": True}
 
 @app.post("/chat_Youtubegemini")
@@ -256,7 +269,6 @@ async def load_youtube_text(link: dict):
     # get_vector_store(text_chunks)
     return {"success": True}
 
-
 @app.post("/mcq_Gendoc")
 async def mcq_genDoc(doc: dict):
     text = doc['text']
@@ -266,8 +278,9 @@ async def mcq_genDoc(doc: dict):
     mcq = genMCQ(text,number,subject,tone)
 
     return mcq
-
-
+ 
+ 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
