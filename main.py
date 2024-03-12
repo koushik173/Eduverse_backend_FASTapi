@@ -1,3 +1,4 @@
+import re
 from fastapi import FastAPI
 import google.generativeai as genai
 from langchain.chains import ConversationChain
@@ -13,6 +14,7 @@ from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import FAISS
 from langchain.memory import ConversationBufferMemory
+from fastapi import HTTPException
 
 from langchain_community.document_loaders import YoutubeLoader
 
@@ -30,7 +32,7 @@ import traceback
 from dotenv import load_dotenv
 import PyPDF2
 
-os.environ["OPENAI_API_KEY"] = "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"
+os.environ["OPENAI_API_KEY"] = "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"
 llm=ChatOpenAI(model_name="gpt-3.5-turbo",temperature=0.7)
 
 
@@ -97,16 +99,18 @@ def get_text_chunks(text):
     vector_store.save_local("faiss_indexs")
     return {"done": "ok"}
 
+def get_youtube_chunks(text):
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    chunks = text_splitter.split_text(text)
+    embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
+    vector_store = FAISS.from_texts(chunks, embedding=embeddings)
+    vector_store.save_local("faiss_youtube_index")
+    return {"done": "ok"}
 
 async def chatt(texttt):
     response = chatchain(texttt)
     return response['response']
 
-
-# def get_vector_store(text_chunks):
-#     embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
-#     vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-#     vector_store.save_local("faiss_index")
 
 def get_conversational_chain():
 
@@ -142,6 +146,19 @@ def user_input(user_question):
 
     return response
 
+def user_youtube_input(user_question):
+    embeddings = GoogleGenerativeAIEmbeddings(model = "models/embedding-001")
+    
+    new_db = FAISS.load_local("faiss_youtube_index", embeddings)
+    docs = new_db.similarity_search(user_question)
+    
+
+    chain = get_conversational_chain()
+    response = chain(
+        {"input_documents":docs, "question": user_question, "history": "history"}
+        , return_only_outputs=True)
+
+    return response
 
 loader = YoutubeLoader.from_youtube_url(
     "https://www.youtube.com/watch?v=dH54GOP7PVY",
@@ -223,64 +240,117 @@ def genMCQ(text, number, subject, tone):
     final_quiz=json.loads(quiz)
     return final_quiz
 
+##
+from component.text_similarity import roy
 
 @app.get("/")
 def read_root():
-    return {"Hello": "Gemini"}
- 
- 
+    text = roy()
+    return {"Hello": text}
+
 @app.post("/chatGemini")
 async def chat_gemini(qurry: dict):
-
-    res = await chatt(qurry["user"])
-    print(res)
-    return res
-
+    try:
+        res = await chatt(qurry["user"])
+        return res
+    except Exception as e:
+        return {"error": "server error"}
 
 @app.post("/chatPDFgemini")
 async def chat_pdf_gemini(qurry: dict):
-    # text_chunks = get_text_chunks(text)
-    # get_vector_store(text_chunks) 
-    response = user_input(qurry["user"])
-    return response
+    try:
+        response = user_input(qurry["user"])
+        return response
+    except Exception as e:
+         return {"error": "server error"}
 
 @app.post("/pdfTextLoaded")
 async def pdf_text_loaded(qurry: dict):
-    res = get_text_chunks(qurry["usertext"])
-    return {"success": True}
+    try:
+        res = get_text_chunks(qurry["usertext"])
+        return {"success": True}
+    except Exception as e:
+        return {"error": "server error"}
 
 @app.post("/chat_Youtubegemini")
 async def chat_youtube_gemini(qurry: dict):
-    response = user_input(qurry["user"])
-    return response
+    try:
+        response = user_youtube_input(qurry["user"])
+        return response
+    except Exception as e:
+        return {"error": "server error"}
 
 @app.post("/load_YoutubeText")
 async def load_youtube_text(link: dict):
-    loader = YoutubeLoader.from_youtube_url(
-        link["url"],
-        add_video_info=True,
-        language=["en", "id"],
-        translation="en",
-    )
-    text = loader.load()
-    page_content = text[0].page_content
-    get_text_chunks(page_content)
-    # text_chunks = get_text_chunks(text)
-    # get_vector_store(text_chunks)
-    return {"success": True}
+    try:
+        youtube_url_pattern = r"^(https?\:\/\/)?(www\.youtube\.com|youtu\.?be)\/.+$"
+        if not re.match(youtube_url_pattern, link["url"]):
+            return {"error": "Invalid YouTube link"}
+
+        loader = YoutubeLoader.from_youtube_url(
+            link["url"],
+            add_video_info=True,
+            language=["en", "id"],
+            translation="en",
+        )
+        text = loader.load()
+        page_content = text[0].page_content
+        get_youtube_chunks(page_content)
+        return {"success": True}
+    except Exception as e:
+        return {"error": "server error"}
 
 @app.post("/mcq_Gendoc")
 async def mcq_genDoc(doc: dict):
-    text = doc['text']
-    number = doc['number']
-    subject = doc['subject']
-    tone = doc['tone']
-    mcq = genMCQ(text,number,subject,tone)
+    try:
+        
+        text = doc['text']
+        number = doc['number']
+        subject = doc['subject']
+        tone = doc['tone']
+        
+        mcq = genMCQ(text,number,subject,tone)
+        return mcq
+    
+    except Exception as e:
+        print("error: ", e)
+        return {"error": "server error"}
+ 
 
-    return mcq
- 
- 
+from component.text_similarity import pair_similarity, group_pair
+from component.web_similarity import find_sources, search_text
+
+
+@app.post("/pair_similarity")
+async def pair_sim(doc: dict):
+    try:
+        data = json.dumps(doc["scripts"], indent=4)
+        res = pair_similarity(data, doc["thress"])
+        return res
+    except Exception as e:
+        print("error: ", e)
+        return {"error": "Invalie scripts answer format"}
+
+@app.post("/group_similar")
+async def pair_group(doc: dict):
+    try:
+        res = group_pair(doc["pair"])
+        return res
+    except Exception as e:
+        print("error: ", e)
+        return {"error": "Invalied scripts answer format"}
+
+@app.post("/web_similarity")
+async def web_simi(doc: dict):
+    try:
+        original_text = doc['ans']
+        thress = doc['thress']
+        urls_to_search = search_text(original_text)[:5]
+        potential_sources = find_sources(original_text, urls_to_search , thress)
+        return potential_sources
+    except Exception as e:
+        return {"error": e}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-    
